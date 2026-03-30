@@ -33,20 +33,20 @@
             <span id="emq-title" style="font-weight:bold; font-size:15px; padding: 0 4px; white-space:nowrap;"> Bulk Collection Edit</span>
             <span id="emq-minimize" style="color:#aaa; font-size:20px; padding: 0 2px; line-height:1; user-select:none;">−</span>
         </div>
-        <div id="emq-body" style="padding: 12px; width: 280px; box-sizing:border-box;">
-            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+        <div id="emq-body" style="padding: 0px 12px 12px 12px; width: 280px; box-sizing:border-box;">
+            <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 8px;">
                 <label style="font-size:13px; flex-shrink: 0;">Collection</label>
                 <select id="emq-collection-id" style="flex: 1; padding:4px; border-radius:5px; border:1px solid #555; background:#111; color:#fff; font-size:13px;">
                     <option disabled selected>Loading...</option>
                 </select>
                 <button id="emq-refresh" style="padding:4px 8px; background:#4a90e2; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:13px; flex-shrink: 0;" title="Refresh collections">🔄</button>
             </div>
-            <label style="font-size:13px;">Entity IDs (comma separated)</label>
+            <label style="font-size:13px;">Song IDs (comma separated)</label>
             <textarea id="emq-entity-ids" rows="4" placeholder="e.g. 5068, 5069, 5070" style="width:100%; margin:3px 0 8px; padding:4px; border-radius:5px; border:1px solid #555; background:#111; color:#fff; resize:vertical; font-size:13px;"></textarea>
             <button id="emq-start" style="width:100%; padding:6px; background:#4a90e2; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">▶ Start</button>
             <button id="emq-stop" style="display:none; width:100%; margin-top:5px; padding:6px; background:#c0392b; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">⏹ Stop</button>
 
-            <hr style="border-color:#333; margin: 10px 0;">
+            <hr style="border-color:#333; margin: 5px 0;">
 
             <!-- Delete section -->
             <div id="emq-delete-confirm" style="display:none; background:#2a0a0a; border:1px solid #c0392b; border-radius:6px; padding:8px; margin-bottom:6px; font-size:13px; text-align:center;">
