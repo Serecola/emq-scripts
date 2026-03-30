@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         EMQ Bulk Add to Collection
+// @name         EMQ Bulk Collection Edit
 // @namespace    https://github.com/Serecola
-// @version      1.2
-// @description  Bulk add entities to a collection on EMQ
+// @version      1.3
+// @description  Bulk edit songs in an EMQ collection
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
 // @downloadURL  https://github.com/Serecola/emq-scripts/raw/main/emq-bulk-collections.user.js
@@ -58,8 +58,8 @@
             </div>
             <button id="emq-delete" style="width:100%; padding:6px; background:#6b1a1a; color:#ff6b6b; border:1px solid #c0392b; border-radius:6px; cursor:pointer; font-size:14px;">🗑 Clear Collection</button>
 
-            <div id="emq-status" style="margin-top:8px; font-size:13px; color:#aaa; min-height:16px;"></div>
-            <div id="emq-progress" style="margin-top:4px; font-size:13px; color:#aaa;"></div>
+            <div id="emq-status" style="margin-top:8px; font-size:13px; color:#aaa; min-height:16px; display: none;"></div>
+            <div id="emq-progress" style="margin-top:4px; font-size:13px; color:#aaa; display: none;"></div>
         </div>
     `;
     document.body.appendChild(panel);
@@ -80,6 +80,60 @@
     const body = document.getElementById('emq-body');
 
     let stopRequested = false;
+    let statusTimeout = null;
+
+    // Helper function to show status area and update text
+    function setStatus(message, isError = false, autoHide = true) {
+        // Clear any existing auto-hide timeout
+        if (statusTimeout) {
+            clearTimeout(statusTimeout);
+        }
+
+        // Show status area if it's hidden
+        if (statusEl.style.display === 'none') {
+            statusEl.style.display = 'block';
+        }
+
+        // Update status text and color
+        statusEl.textContent = message;
+        statusEl.style.color = isError ? '#ff6b6b' : '#aaa';
+
+        // Auto-hide after 3 seconds if specified
+        if (autoHide && !message.includes('Loading') && !message.includes('Adding') && !message.includes('Removing') && !message.includes('...')) {
+            statusTimeout = setTimeout(() => {
+                statusEl.style.display = 'none';
+                statusEl.textContent = '';
+                statusEl.style.color = '#aaa';
+                statusTimeout = null;
+            }, 3000);
+        }
+    }
+
+    // Helper function to show progress area
+    function setProgress(message, show = true) {
+        if (show && message) {
+            if (progressEl.style.display === 'none') {
+                progressEl.style.display = 'block';
+            }
+            progressEl.textContent = message;
+        } else if (!show) {
+            progressEl.style.display = 'none';
+            progressEl.textContent = '';
+        }
+    }
+
+    // Helper function to clear status and progress
+    function clearStatusAndProgress() {
+        if (statusTimeout) {
+            clearTimeout(statusTimeout);
+            statusTimeout = null;
+        }
+        statusEl.style.display = 'none';
+        statusEl.textContent = '';
+        statusEl.style.color = '#aaa';
+        progressEl.style.display = 'none';
+        progressEl.textContent = '';
+    }
 
     // Load minimized state from localStorage (default: false/expanded)
     let minimized = localStorage.getItem('emq_minimized') === 'true';
@@ -96,6 +150,8 @@
             stopBtn.style.display = 'none';
             deleteBtn.disabled = false;
             refreshBtn.disabled = false;
+            // Clear status and progress when operation finishes
+            clearStatusAndProgress();
         }
     }
 
@@ -158,7 +214,7 @@
 
     async function loadCollections(showStatus = true) {
         if (showStatus) {
-            statusEl.textContent = '🔄 Loading collections...';
+            setStatus('🔄 Loading collections...', false, false);
         }
 
         const { userId, token } = getSession();
@@ -197,17 +253,12 @@
             }
 
             if (showStatus) {
-                statusEl.textContent = `✅ Loaded ${data.collectionContainers.length} collections.`;
-                setTimeout(() => {
-                    if (statusEl.textContent.includes('Loaded')) {
-                        statusEl.textContent = '';
-                    }
-                }, 3000);
+                setStatus(`✅ Loaded ${data.collectionContainers.length} collections.`);
             }
         } catch (err) {
             if (showStatus) {
                 collectionSelect.innerHTML = '<option disabled selected>Failed to load</option>';
-                statusEl.textContent = `❌ ${err.message}`;
+                setStatus(`❌ ${err.message}`, true);
             }
         }
     }
@@ -243,7 +294,10 @@
         const raw = document.getElementById('emq-entity-ids').value;
         const entityIds = raw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
 
-        if (!entityIds.length) { statusEl.textContent = '⚠️ No valid IDs entered.'; return; }
+        if (!entityIds.length) {
+            setStatus('⚠️ No valid IDs entered.', true);
+            return;
+        }
 
         const existingIds = new Set(
             (collectionEntitiesMap[collectionId] || []).map(e => e.entity_id)
@@ -252,9 +306,12 @@
         const toAdd = entityIds.filter(id => !existingIds.has(id));
         const skipped = entityIds.length - toAdd.length;
 
-        if (!toAdd.length) { statusEl.textContent = '⚠️ All IDs already in collection.'; return; }
+        if (!toAdd.length) {
+            setStatus('⚠️ All IDs already in collection.', true);
+            return;
+        }
         if (skipped > 0) {
-            statusEl.textContent = `ℹ️ Skipping ${skipped} duplicate(s)...`;
+            setStatus(`ℹ️ Skipping ${skipped} duplicate(s)...`, false, false);
             await sleep(800);
         }
 
@@ -263,37 +320,43 @@
         setOperationState(true);
 
         for (let i = 0; i < toAdd.length; i++) {
-            if (stopRequested) { statusEl.textContent = '⛔ Stopped.'; break; }
+            if (stopRequested) {
+                setStatus('⛔ Stopped.', true);
+                break;
+            }
 
             const entityId = toAdd[i];
-            statusEl.textContent = `⏳ Adding ${entityId}...`;
-            progressEl.textContent = `${i + 1} / ${toAdd.length}${skipped > 0 ? ` (${skipped} skipped)` : ''}`;
+            setStatus(`⏳ Adding ${entityId}...`, false, false);
+            setProgress(`${i + 1} / ${toAdd.length}${skipped > 0 ? ` (${skipped} skipped)` : ''}`);
 
             try {
                 const res = await addEntity(collectionId, entityId, token);
                 if (res.ok) {
                     collectionEntitiesMap[collectionId].push({ entity_id: entityId });
                     updateCollectionCount(collectionId);
-                    statusEl.textContent = `✅ Added ${entityId}.`;
+                    setStatus(`✅ Added ${entityId}.`);
                 } else {
-                    statusEl.textContent = `❌ Failed ${entityId} (${res.status}).`;
+                    setStatus(`❌ Failed ${entityId} (${res.status}).`, true);
                 }
             } catch (err) {
-                statusEl.textContent = `❌ Error: ${err.message}`;
+                setStatus(`❌ Error: ${err.message}`, true);
             }
 
             if (i < toAdd.length - 1 && !stopRequested) {
                 for (let s = 5; s > 0; s--) {
                     if (stopRequested) break;
-                    progressEl.textContent = `${i + 1} / ${toAdd.length} — next in ${(s * 0.1).toFixed(1)}s`;
+                    setProgress(`${i + 1} / ${toAdd.length} — next in ${(s * 0.1).toFixed(1)}s`);
                     await sleep(100);
                 }
             }
         }
 
         if (!stopRequested) {
-            statusEl.textContent = '🎉 All done!';
-            progressEl.textContent = `Added ${toAdd.length}${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}.`;
+            setStatus('🎉 All done!');
+            setProgress(`Added ${toAdd.length}${skipped > 0 ? `, skipped ${skipped} duplicate(s)` : ''}`, true);
+            setTimeout(() => {
+                setProgress('', false);
+            }, 3000);
         }
 
         setOperationState(false);
@@ -304,7 +367,10 @@
     // --- Delete button: show confirm ---
     deleteBtn.addEventListener('click', () => {
         const count = (collectionEntitiesMap[parseInt(collectionSelect.value)] || []).length;
-        if (count === 0) { statusEl.textContent = '⚠️ Collection is already empty.'; return; }
+        if (count === 0) {
+            setStatus('⚠️ Collection is already empty.', true);
+            return;
+        }
         deleteConfirm.style.display = 'block';
         deleteBtn.style.display = 'none';
     });
@@ -321,29 +387,36 @@
         const collectionId = parseInt(collectionSelect.value);
         const entities = [...(collectionEntitiesMap[collectionId] || [])];
 
-        if (!entities.length) { statusEl.textContent = '⚠️ Nothing to delete.'; return; }
+        if (!entities.length) {
+            setStatus('⚠️ Nothing to delete.', true);
+            return;
+        }
 
         const { token } = getSession();
         setOperationState(true);
         stopRequested = false;
 
         for (let i = 0; i < entities.length; i++) {
-            if (stopRequested) { statusEl.textContent = '⛔ Stopped.'; break; }
+            if (stopRequested) {
+                setStatus('⛔ Stopped.', true);
+                break;
+            }
 
             const entityId = entities[i].entity_id;
-            statusEl.textContent = `🗑 Removing ${entityId}...`;
-            progressEl.textContent = `${i + 1} / ${entities.length}`;
+            setStatus(`🗑 Removing ${entityId}...`, false, false);
+            setProgress(`${i + 1} / ${entities.length}`);
 
             try {
                 const res = await removeEntity(collectionId, entityId, token);
                 if (res.ok) {
                     collectionEntitiesMap[collectionId] = collectionEntitiesMap[collectionId].filter(e => e.entity_id !== entityId);
                     updateCollectionCount(collectionId);
+                    setStatus(`✅ Removed ${entityId}.`);
                 } else {
-                    statusEl.textContent = `❌ Failed to remove ${entityId} (${res.status}).`;
+                    setStatus(`❌ Failed to remove ${entityId} (${res.status}).`, true);
                 }
             } catch (err) {
-                statusEl.textContent = `❌ Error: ${err.message}`;
+                setStatus(`❌ Error: ${err.message}`, true);
             }
 
             if (i < entities.length - 1 && !stopRequested) {
@@ -352,8 +425,11 @@
         }
 
         if (!stopRequested) {
-            statusEl.textContent = '🗑 Collection cleared.';
-            progressEl.textContent = `Removed ${entities.length} songs.`;
+            setStatus('🗑 Collection cleared.');
+            setProgress(`Removed ${entities.length} songs.`, true);
+            setTimeout(() => {
+                setProgress('', false);
+            }, 3000);
         }
 
         setOperationState(false);
