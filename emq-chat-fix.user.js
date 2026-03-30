@@ -3,7 +3,7 @@
 // @namespace https://erogemusicquiz.com
 // @version 1.4
 // @description fix chat being jumped to bottom
-// @author -
+// @author Hyther
 // @match https://erogemusicquiz.com/*
 // @grant none
 // @run-at document-start
