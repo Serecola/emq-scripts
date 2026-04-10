@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ VN Shortcuts
 // @namespace    https://github.com/Serecola
-// @version      1.0
+// @version      1.1
 // @description  Displays shortcuts for VN titles in EMQ dropdown.
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
@@ -72,28 +72,37 @@
     function isStale(timestamp) { return Date.now() - timestamp > CONFIG.CACHE_DURATION; }
 
     // -------------------------------------------------------------------------
-    // Lookup Map & Matcher
+    // Lookup Map & Matcher (stores both shortcuts and word shortcuts)
     // -------------------------------------------------------------------------
     let lookupMap = null;
+    let wordShortcutSet = null;
 
     function buildLookupMap(jsonData) {
         const map = new Map();
+        const wordSet = new Set();
+
         for (const entry of jsonData) {
-            const { jp_latin_title, en_latin_title, shortcuts } = entry;
+            const { jp_latin_title, en_latin_title, shortcuts, shortcuts_words } = entry;
             if (!shortcuts || shortcuts.length === 0) continue;
+
+            // Track word shortcuts
+            if (shortcuts_words && shortcuts_words.length > 0) {
+                shortcuts_words.forEach(w => wordSet.add(w));
+            }
 
             const addTitle = (title) => {
                 const norm = normalize(title);
                 if (!norm) return;
-                map.set(norm, shortcuts);
+                map.set(norm, { shortcuts, words: shortcuts_words });
                 const stripped = normalize(title.replace(/\([^)]*\)/g, ''));
-                if (stripped && stripped !== norm) map.set(stripped, shortcuts);
+                if (stripped && stripped !== norm) map.set(stripped, { shortcuts, words: shortcuts_words });
             };
 
             if (jp_latin_title) addTitle(jp_latin_title);
             if (en_latin_title && en_latin_title !== jp_latin_title) addTitle(en_latin_title);
         }
-        return map;
+
+        return { map, wordSet };
     }
 
     function findShortcuts(rawTitle, map) {
@@ -138,6 +147,7 @@
             refreshBtn.onclick = () => {
                 clearCache();
                 lookupMap = null;
+                wordShortcutSet = null;
                 refreshBtn.textContent = '⟳';
                 fetchAndCache(true);
             };
@@ -155,7 +165,7 @@
         return panel;
     }
 
-    function renderShortcuts(shortcuts, statusText = '', isError = false) {
+    function renderShortcuts(shortcuts, wordShortcuts = [], statusText = '', isError = false) {
         const el = ensurePanelInDOM();
         el.style.display = 'block';
 
@@ -165,6 +175,9 @@
         if (!chipsEl) return;
 
         chipsEl.innerHTML = '';
+
+        const wordSet = new Set(wordShortcuts);
+
         if (!shortcuts || shortcuts.length === 0) {
             chipsEl.innerHTML = '<span style="color:#8b949e;">None found</span>';
             return;
@@ -174,19 +187,47 @@
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = sc || '␣';
+
+            const isWordShortcut = wordSet.has(sc);
+
             btn.style.cssText = `
-                background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-                border-radius: 4px; padding: 4px 8px; cursor: pointer;
-                font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px;
+                background: ${isWordShortcut ? '#3a2a1a' : '#21262d'};
+                color: #c9d1d9;
+                border: 1px solid ${isWordShortcut ? '#ffd700' : '#30363d'};
+                border-radius: 4px;
+                padding: 4px 8px;
+                cursor: pointer;
+                font-family: ui-monospace, SFMono-Regular, monospace;
+                font-size: 14px;
                 transition: all 0.15s ease;
+                box-shadow: ${isWordShortcut ? '0 0 4px rgba(255, 215, 0, 0.5)' : 'none'};
             `;
-            btn.onmouseenter = () => btn.style.background = '#30363d';
-            btn.onmouseleave = () => btn.style.background = '#21262d'
+
+            if (isWordShortcut) {
+                btn.style.setProperty('box-shadow', '0 0 6px rgba(255, 215, 0, 0.6)');
+                btn.style.setProperty('text-shadow', '0 0 2px rgba(255, 215, 0, 0.3)');
+            }
+
+            btn.onmouseenter = () => {
+                btn.style.background = isWordShortcut ? '#4a3a2a' : '#30363d';
+                if (isWordShortcut) btn.style.boxShadow = '0 0 10px rgba(255, 215, 0, 0.8)';
+            };
+            btn.onmouseleave = () => {
+                btn.style.background = isWordShortcut ? '#3a2a1a' : '#21262d';
+                if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
+            };
             btn.onclick = () => {
                 navigator.clipboard.writeText(sc).catch(() => {});
                 const orig = btn.textContent;
-                btn.style.background = '#238636'; btn.style.color = '#fff'; btn.textContent = '✓';
-                setTimeout(() => { btn.style.background = '#21262d'; btn.style.color = '#c9d1d9'; btn.textContent = orig; }, 800);
+                btn.style.background = '#238636';
+                btn.style.color = '#fff';
+                btn.textContent = '✓';
+                setTimeout(() => {
+                    btn.style.background = isWordShortcut ? '#3a2a1a' : '#21262d';
+                    btn.style.color = '#c9d1d9';
+                    btn.textContent = orig;
+                    if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
+                }, 800);
             };
             chipsEl.appendChild(btn);
         });
@@ -227,7 +268,9 @@
         const cache = getCache();
         if (cache && !force && !isStale(cache.timestamp)) {
             console.log('[EMQ VN Shortcuts] Cache fresh. Ready.');
-            lookupMap = buildLookupMap(cache.data);
+            const { map, wordSet } = buildLookupMap(cache.data);
+            lookupMap = map;
+            wordShortcutSet = wordSet;
             updateStatus('ready');
             return;
         }
@@ -236,7 +279,9 @@
         try {
             const data = await fetchShortcuts();
             setCache(data);
-            lookupMap = buildLookupMap(data);
+            const { map, wordSet } = buildLookupMap(data);
+            lookupMap = map;
+            wordShortcutSet = wordSet;
             updateStatus('ready');
             console.log('[EMQ VN Shortcuts] Shortcuts downloaded & cached.');
             if (document.querySelector('li.correctAnswerSourceTitle')) displayShortcuts();
@@ -259,16 +304,30 @@
         if (key === lastTitleKey) return;
         lastTitleKey = key;
 
-        if (!lookupMap) lookupMap = buildLookupMap(cache.data);
+        if (!lookupMap) {
+            const { map, wordSet } = buildLookupMap(cache.data);
+            lookupMap = map;
+            wordShortcutSet = wordSet;
+        }
 
         const allSc = new Set();
+        const allWordSc = new Set();
+
         titles.forEach(t => {
-            const sc = findShortcuts(t, lookupMap);
-            if (sc) sc.forEach(s => allSc.add(s));
+            const result = findShortcuts(t, lookupMap);
+            if (result) {
+                result.shortcuts.forEach(s => allSc.add(s));
+                if (result.words) {
+                    result.words.forEach(w => {
+                        allSc.add(w);
+                        allWordSc.add(w);
+                    });
+                }
+            }
         });
 
         const sorted = Array.from(allSc).sort((a, b) => a.length - b.length || a.localeCompare(b));
-        renderShortcuts(sorted, 'ready');
+        renderShortcuts(sorted, Array.from(allWordSc), 'ready');
     }
 
     // -------------------------------------------------------------------------
