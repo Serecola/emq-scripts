@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ Text Autocorrect
 // @namespace    https://github.com/Serecola
-// @version      1.0
+// @version      1.1
 // @description  Custom text autocorrects for EMQ
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
@@ -67,6 +67,14 @@
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    function refreshAutocorrects() {
+        autocorrects = loadAutocorrects();
+        currentFilter = '';
+        const filterInput = document.getElementById('emq-ac-from');
+        if (filterInput) filterInput.value = '';
+        renderList();
+    }
+
     function buildTabPane() {
         const pane = document.createElement('div');
         pane.id = 'emq-ac-pane';
@@ -85,6 +93,12 @@
                     style="padding:4px 12px; background:#4a90e2; color:#fff; border:none;
                         border-radius:4px; cursor:pointer; white-space:nowrap; flex-shrink:0;">
                     + Add
+                </button>
+                <button id="emq-ac-refresh" type="button"
+                    style="padding:4px 12px; background:#555; color:#fff; border:none;
+                        border-radius:4px; cursor:pointer; white-space:nowrap; flex-shrink:0;"
+                    title="Reload from storage">
+                    ↻ Refresh
                 </button>
             </div>
             <div id="emq-ac-list" style="max-height:220px; overflow-y:auto; border:1px solid #333;
@@ -158,6 +172,7 @@
         const fromInput = document.getElementById('emq-ac-from');
         const toInput   = document.getElementById('emq-ac-to');
         const addBtn    = document.getElementById('emq-ac-add');
+        const refreshBtn = document.getElementById('emq-ac-refresh');
 
         if (!addBtn || addBtn.dataset.wired) return;
         addBtn.dataset.wired = '1';
@@ -174,6 +189,12 @@
             toInput.value = '';
             renderList();
         });
+
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                refreshAutocorrects();
+            });
+        }
 
         if (fromInput) {
             fromInput.addEventListener('input', (e) => {

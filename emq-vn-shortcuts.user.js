@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ VN Shortcuts
 // @namespace    https://github.com/Serecola
-// @version      1.1
+// @version      1.3
 // @description  Displays shortcuts for VN titles in EMQ dropdown.
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
@@ -33,12 +33,11 @@
     }
 
     // -------------------------------------------------------------------------
-    // Storage (Page localStorage via unsafeWindow)
+    // Storage (Use standard localStorage to match EMQ Autocorrect script)
     // -------------------------------------------------------------------------
     function getPageStorage() {
-        try {
-            return typeof unsafeWindow !== 'undefined' ? unsafeWindow.localStorage : window.localStorage;
-        } catch { return window.localStorage; }
+        // Use standard localStorage instead of unsafeWindow to match autocorrect script
+        return window.localStorage;
     }
 
     function getCache() {
@@ -72,6 +71,52 @@
     function isStale(timestamp) { return Date.now() - timestamp > CONFIG.CACHE_DURATION; }
 
     // -------------------------------------------------------------------------
+    // Autocorrect Storage Functions
+    // -------------------------------------------------------------------------
+    const AUTOCORRECT_STORAGE_KEY = 'emq_autocorrects';
+
+    function loadAutocorrects() {
+        const storage = getPageStorage();
+        try {
+            const data = storage.getItem(AUTOCORRECT_STORAGE_KEY);
+            console.log('[EMQ VN Shortcuts] Loaded autocorrects:', data);
+            return data ? JSON.parse(data) : [];
+        } catch (e) {
+            console.warn('[EMQ VN Shortcuts] Autocorrect load error:', e);
+            return [];
+        }
+    }
+
+    function saveAutocorrects(list) {
+        const storage = getPageStorage();
+        try {
+            storage.setItem(AUTOCORRECT_STORAGE_KEY, JSON.stringify(list));
+            console.log('[EMQ VN Shortcuts] Saved autocorrects:', list);
+        } catch (e) { console.warn('[EMQ VN Shortcuts] Autocorrect save error:', e); }
+    }
+
+    function addShortcutToAutocorrect(shortcut, title) {
+        const autocorrects = loadAutocorrects();
+        console.log('[EMQ VN Shortcuts] Current autocorrects:', autocorrects);
+
+        // Check if shortcut already exists
+        if (autocorrects.some(r => r.from === shortcut)) {
+            console.log(`[EMQ VN Shortcuts] Shortcut "${shortcut}" already exists in autocorrect`);
+            return false;
+        }
+
+        // Add new autocorrect rule
+        autocorrects.push({
+            from: shortcut,
+            to: title
+        });
+
+        saveAutocorrects(autocorrects);
+        console.log(`[EMQ VN Shortcuts] Added autocorrect: "${shortcut}" → "${title}"`);
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
     // Lookup Map & Matcher (stores both shortcuts and word shortcuts)
     // -------------------------------------------------------------------------
     let lookupMap = null;
@@ -93,9 +138,9 @@
             const addTitle = (title) => {
                 const norm = normalize(title);
                 if (!norm) return;
-                map.set(norm, { shortcuts, words: shortcuts_words });
+                map.set(norm, { shortcuts, words: shortcuts_words, originalTitle: title });
                 const stripped = normalize(title.replace(/\([^)]*\)/g, ''));
-                if (stripped && stripped !== norm) map.set(stripped, { shortcuts, words: shortcuts_words });
+                if (stripped && stripped !== norm) map.set(stripped, { shortcuts, words: shortcuts_words, originalTitle: title });
             };
 
             if (jp_latin_title) addTitle(jp_latin_title);
@@ -165,7 +210,7 @@
         return panel;
     }
 
-    function renderShortcuts(shortcuts, wordShortcuts = [], statusText = '', isError = false) {
+    function renderShortcuts(shortcuts, wordShortcuts = [], statusText = '', isError = false, currentTitle = '') {
         const el = ensurePanelInDOM();
         el.style.display = 'block';
 
@@ -217,17 +262,36 @@
                 if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
             };
             btn.onclick = () => {
+                // Copy to clipboard
                 navigator.clipboard.writeText(sc).catch(() => {});
-                const orig = btn.textContent;
-                btn.style.background = '#238636';
-                btn.style.color = '#fff';
-                btn.textContent = '✓';
-                setTimeout(() => {
-                    btn.style.background = isWordShortcut ? '#3a2a1a' : '#21262d';
-                    btn.style.color = '#c9d1d9';
-                    btn.textContent = orig;
-                    if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
-                }, 800);
+
+                // Add to autocorrect if we have a current title
+                if (currentTitle) {
+                    const added = addShortcutToAutocorrect(sc, currentTitle);
+                    if (added) {
+                        btn.style.background = '#238636';
+                        btn.style.color = '#fff';
+                        btn.textContent = '✓';
+                        setTimeout(() => {
+                            btn.style.background = isWordShortcut ? '#3a2a1a' : '#21262d';
+                            btn.style.color = '#c9d1d9';
+                            btn.textContent = sc;
+                            if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
+                        }, 800);
+                    }
+                } else {
+                    // Just copy feedback
+                    const orig = btn.textContent;
+                    btn.style.background = '#238636';
+                    btn.style.color = '#fff';
+                    btn.textContent = '✓';
+                    setTimeout(() => {
+                        btn.style.background = isWordShortcut ? '#3a2a1a' : '#21262d';
+                        btn.style.color = '#c9d1d9';
+                        btn.textContent = orig;
+                        if (isWordShortcut) btn.style.boxShadow = '0 0 6px rgba(255, 215, 0, 0.6)';
+                    }, 800);
+                }
             };
             chipsEl.appendChild(btn);
         });
@@ -263,6 +327,7 @@
     // Core Flow
     // -------------------------------------------------------------------------
     let lastTitleKey = '';
+    let currentTitles = [];
 
     async function fetchAndCache(force = false) {
         const cache = getCache();
@@ -303,6 +368,7 @@
         const key = titles.join('|');
         if (key === lastTitleKey) return;
         lastTitleKey = key;
+        currentTitles = titles;
 
         if (!lookupMap) {
             const { map, wordSet } = buildLookupMap(cache.data);
@@ -312,10 +378,12 @@
 
         const allSc = new Set();
         const allWordSc = new Set();
+        let primaryTitle = '';
 
-        titles.forEach(t => {
+        titles.forEach((t, index) => {
             const result = findShortcuts(t, lookupMap);
             if (result) {
+                if (index === 0) primaryTitle = result.originalTitle || t;
                 result.shortcuts.forEach(s => allSc.add(s));
                 if (result.words) {
                     result.words.forEach(w => {
@@ -327,7 +395,7 @@
         });
 
         const sorted = Array.from(allSc).sort((a, b) => a.length - b.length || a.localeCompare(b));
-        renderShortcuts(sorted, Array.from(allWordSc), 'ready');
+        renderShortcuts(sorted, Array.from(allWordSc), 'ready', false, primaryTitle);
     }
 
     // -------------------------------------------------------------------------
