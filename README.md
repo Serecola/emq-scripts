@@ -8,5 +8,8 @@ Small collection of custom EMQ scripts
 ### [EMQ Bulk Collections](https://github.com/Serecola/emq-scripts/raw/main/emq-chat-fix.user.js)
 - Bulk add / delete items from a collection. Song IDs can be batch taken from [Bad EMQ Players](https://serecola.github.io/bad-emq-players/)
 
+### [EMQ Text Autocorrect](https://github.com/Serecola/emq-scripts/raw/main/emq-autocorrect.user.js)
+- Allows shorter strings to autocomplete into longer titles. Default trigger keys are 'Spacebar', 'Tab', and 'Enter'
+
 ### [EMQ VN Shortcuts](https://github.com/Serecola/emq-scripts/raw/main/emq-vn-shortcuts.user.js)
 - Displays shortcuts for VN titles in EMQ dropdown. Shortcut data is taken from [Bad EMQ Players](https://serecola.github.io/bad-emq-players/)
