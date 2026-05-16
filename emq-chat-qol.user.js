@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ Chat QoL
 // @namespace    https://erogemusicquiz.com/
-// @version      1.0
+// @version      1.1
 // @description  Chat QoL improvements: image hover preview, and paste file upload to litterbox
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
@@ -30,6 +30,18 @@
         'pbs.twimg.com',
         's-ul.eu',
     ];
+
+    // Normalizes URLs to a directly loadable image URL where possible.
+    function normalizeImageUrl(url) {
+        try {
+            const parsed = new URL(url);
+            if (parsed.hostname === 'imgur.com') {
+                const match = parsed.pathname.match(/^\/([a-zA-Z0-9]+)$/);
+                if (match) return `https://i.imgur.com/${match[1]}.png`;
+            }
+        } catch {}
+        return url;
+    }
 
     function isImageUrl(url) {
         try {
@@ -89,7 +101,7 @@
         if (anchor.dataset.emqDecorated) return;
         anchor.dataset.emqDecorated = 'true';
 
-        const url = anchor.href;
+        const url = normalizeImageUrl(anchor.href);
 
         anchor.addEventListener('mouseenter', e => {
             hoverZoom.src = '';
@@ -141,6 +153,7 @@
                 method: 'POST',
                 url: LITTERBOX_API,
                 data: fd,
+                timeout: 90000, // 90 seconds
                 onload: (res) => {
                     if (res.status >= 200 && res.status < 300) {
                         resolve(res.responseText.trim());
@@ -152,10 +165,6 @@
             });
         });
     }
-
-    // ── Toast (anchored inside #chat, sits above the textarea) ───────────────────
-    // #chat has `position: relative` and grid-template-rows: 66vh 100px,
-    // so bottom: 100px places the toast right at the top of the input row.
 
     let toast = null;
 
@@ -294,12 +303,6 @@
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.focus();
     }
-
-    // ════════════════════════════════════════════════════════════════════════════
-    // SHARED MUTATION OBSERVER
-    // One observer handles both: scanning new chat messages for image links,
-    // and detecting when #chatInput is added to the DOM.
-    // ════════════════════════════════════════════════════════════════════════════
 
     let debounceTimer = null;
     function scheduleFullScan() {
