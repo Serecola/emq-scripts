@@ -1,6 +1,6 @@
 # EMQ Scripts
 
-Small collection of custom EMQ scripts
+Small collection of custom EMQ scripts. Use [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/) as a userscript manager to install these scripts.
 
 ### [EMQ Chat Fix](https://github.com/hyther1111/gm_scripts/raw/main/emq-chat-fix.user.js) by [Hyther](https://github.com/hyther1111)
 - Stops chat from auto-scrolling on new chat messages
