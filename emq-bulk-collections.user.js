@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ Bulk Collection Edit
 // @namespace    https://github.com/Serecola
-// @version      1.3
+// @version      1.4
 // @description  Bulk edit songs in an EMQ collection
 // @author       Serecola
 // @match        https://erogemusicquiz.com/*
@@ -36,12 +36,16 @@
         <div id="emq-body" style="padding: 0px 12px 12px 12px; width: 280px; box-sizing:border-box;">
             <div style="display: flex; gap: 5px; align-items: center; margin-bottom: 8px;">
                 <label style="font-size:13px; flex-shrink: 0;">Collection</label>
-                <select id="emq-collection-id" style="flex: 1; padding:4px; border-radius:5px; border:1px solid #555; background:#111; color:#fff; font-size:13px;">
+                <select id="emq-collection-id" style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding:4px; border-radius:5px; border:1px solid #555; background:#111; color:#fff; font-size:13px;">
                     <option disabled selected>Loading...</option>
                 </select>
                 <button id="emq-refresh" style="padding:4px 8px; background:#4a90e2; color:#fff; border:none; border-radius:5px; cursor:pointer; font-size:13px; flex-shrink: 0;" title="Refresh collections">🔄</button>
             </div>
-            <label style="font-size:13px;">Song IDs (comma separated)</label>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px;">
+                <label style="font-size:13px;">Song IDs (comma separated)</label>
+                <button id="emq-import-json" title="Import song IDs from an EMQ song history JSON" style="padding:2px 6px; background:#333; color:#eee; border:1px solid #555; border-radius:5px; cursor:pointer; font-size:13px; flex-shrink:0;">📥</button>
+            </div>
+            <input type="file" id="emq-import-file" accept=".json,application/json" multiple style="display:none;">
             <textarea id="emq-entity-ids" rows="4" placeholder="e.g. 5068, 5069, 5070" style="width:100%; margin:3px 0 8px; padding:4px; border-radius:5px; border:1px solid #555; background:#111; color:#fff; resize:vertical; font-size:13px;"></textarea>
             <button id="emq-start" style="width:100%; padding:6px; background:#4a90e2; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">▶ Start</button>
             <button id="emq-stop" style="display:none; width:100%; margin-top:5px; padding:6px; background:#c0392b; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">⏹ Stop</button>
@@ -74,6 +78,9 @@
     const deleteNo = document.getElementById('emq-delete-no');
     const collectionSelect = document.getElementById('emq-collection-id');
     const refreshBtn = document.getElementById('emq-refresh');
+    const importJsonBtn = document.getElementById('emq-import-json');
+    const importFileInput = document.getElementById('emq-import-file');
+    const entityIdsTextarea = document.getElementById('emq-entity-ids');
     const header = document.getElementById('emq-header');
     const title = document.getElementById('emq-title');
     const minimizeIcon = document.getElementById('emq-minimize');
@@ -271,6 +278,71 @@
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
+
+    // Pull song IDs out of an EMQ-exported JSON blob.
+    // Handles: an array of entries, or an object keyed by index (e.g. song history exports),
+    // where each entry has entry.Song.Id, or entry.Id, or is itself a bare number/numeric string.
+    function extractSongIds(data) {
+        const entries = Array.isArray(data) ? data : Object.values(data || {});
+        const ids = [];
+        for (const entry of entries) {
+            let id = null;
+            if (entry && typeof entry === 'object') {
+                if (entry.Song && entry.Song.Id != null) {
+                    id = entry.Song.Id;
+                } else if (entry.Id != null) {
+                    id = entry.Id;
+                }
+            } else if (typeof entry === 'number' || typeof entry === 'string') {
+                id = entry;
+            }
+            const parsed = parseInt(id, 10);
+            if (!isNaN(parsed)) {
+                ids.push(parsed);
+            }
+        }
+        return [...new Set(ids)]; // dedupe, preserve first-seen order
+    }
+
+    // --- Import JSON button ---
+    importJsonBtn.addEventListener('click', () => {
+        importFileInput.click();
+    });
+
+    importFileInput.addEventListener('change', async () => {
+        const files = [...importFileInput.files];
+        importFileInput.value = ''; // allow re-selecting the same file(s) later
+        if (!files.length) return;
+
+        const allIds = [];
+        const errors = [];
+
+        for (const file of files) {
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                allIds.push(...extractSongIds(data));
+            } catch (err) {
+                errors.push(`${file.name}: ${err.message}`);
+            }
+        }
+
+        const ids = [...new Set(allIds)]; // dedupe across all files, preserve first-seen order
+
+        if (!ids.length) {
+            setStatus('⚠️ No song IDs found in that file.', true);
+            return;
+        }
+
+        entityIdsTextarea.value = ids.join(', ');
+
+        if (errors.length) {
+            setStatus(`⚠️ Imported ${ids.length} ID(s), but ${errors.length} file(s) failed: ${errors.join('; ')}`, true);
+        } else {
+            const fileCount = files.length;
+            setStatus(`✅ Imported ${ids.length} song ID(s) from ${fileCount} file${fileCount > 1 ? 's' : ''}.`);
+        }
+    });
 
     async function addEntity(collectionId, entityId, token) {
         return await fetch('/Library/ModifyCollectionEntity', {
