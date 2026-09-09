@@ -2,12 +2,15 @@
 
 Small collection of custom EMQ scripts. Use [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/) as a userscript manager to install these scripts.
 
+### [EMQ Autocomplete](https://github.com/Serecola/emq-scripts/raw/main/emq-autocomplete.user.js)
+- Find VN titles by using keywords (need to use space as a separator)
+
 ### [EMQ Chat QoL](https://github.com/Serecola/emq-scripts/raw/main/emq-chat-qol.user.js)
 - Preview image links by hovering over it
 - Upload litterbox image links by copy pasting in the chatbox.
 
 ### [EMQ Bulk Collections](https://github.com/Serecola/emq-scripts/raw/main/emq-chat-fix.user.js)
-- Bulk add / delete items from a collection. Song IDs can be batch taken from [Bad EMQ Players](https://serecola.github.io/bad-emq-players/) or importing match jsons.
+- Bulk add / delete items from a collection. Song IDs can be batch taken from [Bad EMQ Players](https://serecola.github.io/bad-emq-players/)
 
 ### [EMQ Text Autocorrect](https://github.com/Serecola/emq-scripts/raw/main/emq-autocorrect.user.js)
 - Allows shorter strings to autocomplete into longer titles. Default trigger keys are 'Spacebar', 'Tab', and 'Enter'
