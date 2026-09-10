@@ -108,6 +108,140 @@
         return pane;
     }
 
+    // -------------------------------------------------------------------------
+// Title dropdown for the "Replacement text" box
+// -------------------------------------------------------------------------
+function getAutocompleteTitles() {
+    try {
+        const raw = localStorage.getItem('emq_shortcuts_data');
+        if (!raw) return [];
+        const data = JSON.parse(raw);
+        const seen = new Set();
+        const titles = [];
+        for (const entry of data) {
+            const { jp_latin_title, en_latin_title } = entry;
+            for (const t of [jp_latin_title, en_latin_title]) {
+                if (t && t !== '\\N' && !seen.has(t)) {
+                    seen.add(t);
+                    titles.push(t);
+                }
+            }
+        }
+        return titles;
+    } catch (e) {
+        console.warn('[EMQ Autocorrect] Failed to read title cache:', e);
+        return [];
+    }
+}
+
+function normalizeForMatch(text) {
+    return text.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function attachTitleAutocomplete(inputEl, getTitles) {
+    if (!inputEl) return;
+
+    const dropdown = document.createElement('div');
+    dropdown.style.cssText = `
+        position: absolute; z-index: 10000; display: none;
+        background: #111; border: 1px solid #555; border-radius: 4px;
+        max-height: 220px; overflow-y: auto; font-size: 13px;
+        color: #fff; font-family: system-ui, -apple-system, sans-serif;
+    `;
+    document.body.appendChild(dropdown);
+
+    let results = [];
+    let focusIndex = -1;
+
+    function positionDropdown() {
+        const rect = inputEl.getBoundingClientRect();
+        dropdown.style.left = `${rect.left + window.scrollX}px`;
+        dropdown.style.top = `${rect.bottom + window.scrollY}px`;
+        dropdown.style.width = `${rect.width}px`;
+    }
+
+    function close() {
+        dropdown.style.display = 'none';
+        focusIndex = -1;
+    }
+
+    function renderResults() {
+        dropdown.innerHTML = '';
+        results.forEach((title, i) => {
+            const item = document.createElement('div');
+            item.textContent = title;
+            item.style.cssText = `
+                padding: 4px 8px; cursor: pointer;
+                background: ${i === focusIndex ? '#2a3a4a' : 'transparent'};
+            `;
+            item.onmouseenter = () => { focusIndex = i; renderResults(); };
+            // prevent input blur from firing before click is registered
+            item.onmousedown = (e) => e.preventDefault();
+            item.onclick = () => {
+                inputEl.value = title;
+                close();
+                inputEl.focus();
+            };
+            dropdown.appendChild(item);
+        });
+        dropdown.style.display = results.length ? 'block' : 'none';
+    }
+
+    function search(value) {
+        const norm = normalizeForMatch(value);
+        if (!norm) { results = []; renderResults(); return; }
+        results = getTitles()
+            .filter(t => normalizeForMatch(t).includes(norm))
+            .slice(0, 25);
+        focusIndex = -1;
+        renderResults();
+    }
+
+    inputEl.addEventListener('input', () => {
+        positionDropdown();
+        search(inputEl.value);
+    });
+
+    inputEl.addEventListener('focus', () => {
+        positionDropdown();
+        if (inputEl.value) search(inputEl.value);
+    });
+
+    inputEl.addEventListener('blur', () => {
+        // slight delay so a click on an item can register first
+        setTimeout(close, 100);
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+        if (dropdown.style.display !== 'block') return;
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                focusIndex = Math.min(focusIndex + 1, results.length - 1);
+                renderResults();
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                focusIndex = Math.max(focusIndex - 1, 0);
+                renderResults();
+                break;
+            case 'Enter':
+                if (focusIndex >= 0) {
+                    e.preventDefault();
+                    inputEl.value = results[focusIndex];
+                    close();
+                }
+                break;
+            case 'Escape':
+                close();
+                break;
+        }
+    });
+
+    window.addEventListener('scroll', () => { if (dropdown.style.display === 'block') positionDropdown(); }, true);
+    window.addEventListener('resize', positionDropdown);
+}
+
     function renderList() {
         const listEl = document.getElementById('emq-ac-list');
         if (!listEl) return;
@@ -236,6 +370,8 @@
 
         const pane = buildTabPane();
         tabContent.appendChild(pane);
+
+        attachTitleAutocomplete(pane.querySelector('#emq-ac-to'), getAutocompleteTitles);
 
         const ourLink = li.querySelector('a');
 
