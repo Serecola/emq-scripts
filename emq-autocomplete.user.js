@@ -18,20 +18,18 @@
     const MAX_RESULTS = 25;
     const AUTOCOMPLETE_INPUT_SELECTOR = ".autocomplete input[type='search']";
 
-    const DEBUG = true;
-
-    function log(...args) {
-        if (DEBUG) {
-            console.log("[EMQ Split]", ...args);
-        }
-    }
-
     function normalize(text) {
         return String(text ?? "")
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
             .toLowerCase()
             .replace(/[^\p{L}\p{N}]/gu, "");
+    }
+
+    function stripTrailingParenthetical(text) {
+        return String(text ?? "")
+            .replace(/\s*\([^()]*\)\s*$/u, "")
+            .trim();
     }
 
     function getQueryWords(query) {
@@ -174,7 +172,6 @@
     }
 
     async function loadDatabase(config) {
-        log("Loading:", config.dataUrl);
 
         try {
             const response = await fetch(
@@ -198,7 +195,6 @@
 
             config.loaded = true;
 
-            log("Indexed titles for", config.dataUrl, ":", config.entries.length);
         } catch (error) {
             console.error("[EMQ Split] Failed to load", config.dataUrl, error);
             config.entries = [];
@@ -353,7 +349,6 @@
         const menu = getMenu(input);
 
         if (!menu) {
-            log("ERROR: .autocomplete-items not found");
             return;
         }
 
@@ -362,8 +357,16 @@
             .forEach(element => element.remove());
 
         const nativeItems = getNativeItems(input);
+
+        // Native items sometimes render as "Title (Native Script)" (e.g.
+        // artist/developer entries showing a Japanese reading alongside the
+        // romaji name). Strip that trailing parenthetical before comparing
+        // so it can still match our plain-title entries and won't be
+        // duplicated in the custom overlay.
         const nativeTitles = new Set(
-            nativeItems.map(item => normalize(item.textContent))
+            nativeItems.map(item =>
+                normalize(stripTrailingParenthetical(item.textContent))
+            )
         );
 
         const dedupedResults = results.filter(
@@ -408,7 +411,6 @@
 
         menu.appendChild(fragment);
 
-        log("Displaying", dedupedResults.length, "custom results");
     }
 
     function updateActiveResult() {
@@ -485,7 +487,6 @@
     }
 
     async function selectResult(input, entry) {
-        log("Selecting:", entry.title);
 
         clearCustomResults();
         setInputValue(input, entry.title);
@@ -524,7 +525,6 @@
         }
 
         const results = search(query, queryWords, config.entries);
-        log(`Query "${query}" -> ${results.length} results`);
 
         renderCustomResults(input, results);
     }
@@ -543,7 +543,6 @@
         inputConfigs.set(input, config);
 
         input.dataset.emqSplitV7 = "true";
-        log("Attached:", input, "->", config.dataUrl);
 
         input.addEventListener(
             "input",
@@ -589,7 +588,6 @@
                     event.preventDefault();
                     event.stopImmediatePropagation();
 
-                    log("Auto-selecting first native result on Enter:", nativeItems[0].textContent);
                     nativeItems[0].click();
 
                     return;
@@ -700,10 +698,8 @@
     }
 
     try {
-        log("Starting...");
         await loadAllDatabases();
         startObserver();
-        log("Ready.");
     } catch (error) {
         console.error("[EMQ Split] FAILED:", error);
     }
