@@ -1,36 +1,22 @@
 // ==UserScript==
 // @name         EMQ Autocomplete
 // @namespace    https://tampermonkey.net/
-// @version      0.1a
+// @version      0.3
 // @author       Serecola & AI
 // @description  EMQ autocomplete with multi-keyword matching in any order
 // @match        https://erogemusicquiz.com/*
 // @match        https://www.erogemusicquiz.com/*
 // @grant        none
 // @run-at       document-idle
+// @downloadURL  https://github.com/Serecola/emq-scripts/raw/main/emq-autocomplete.user.js
+// @updateURL    https://github.com/Serecola/emq-scripts/raw/main/emq-autocomplete.user.js
 // ==/UserScript==
 
 (async () => {
     "use strict";
 
-    const DATA_URL = "/autocomplete/mst.json";
     const MAX_RESULTS = 25;
     const AUTOCOMPLETE_INPUT_SELECTOR = ".autocomplete input[type='search']";
-
-    const ALLOWED_PLACEHOLDERS = new Set([
-        "enter source title here",
-        "enter your guess here"
-    ]);
-
-    let database = [];
-    let loaded = false;
-
-    let activeInput = null;
-    let customResults = [];
-    let customResultElements = [];
-    let selectedIndex = -1;
-
-    let searchTimer = null;
 
     const DEBUG = true;
 
@@ -61,52 +47,170 @@
             .filter(Boolean);
     }
 
-    function isAllowedInput(input) {
+    // Each config owns one JSON dataset and the set of input placeholders
+    // that should search against it.
+    const SOURCE_CONFIGS = [
+        {
+            dataUrl: "/autocomplete/mst.json",
+            placeholders: new Set([
+                "enter source title here",
+                "enter your guess here"
+            ]),
+            entries: [],
+            loaded: false,
+            mapEntry(entry, index) {
+                return {
+                    index,
+                    id: entry["1"],
+                    title: String(entry["2"] ?? ""),
+                    normalized: normalize(entry["4"] ?? entry["2"] ?? ""),
+                    titleNormalized: normalize(entry["2"] ?? ""),
+                    sourceType: entry["6"]
+                };
+            }
+        },
+        {
+            dataUrl: "/autocomplete/mt.json",
+            placeholders: new Set(["enter song title here"]),
+            entries: [],
+            loaded: false,
+            mapEntry(entry, index) {
+                const title = String(entry["2"] ?? "");
+                const altTitle = String(entry["5"] ?? "");
+
+                return {
+                    index,
+                    id: entry["1"],
+                    title,
+                    normalized: normalize(
+                        altTitle ? `${title} ${altTitle}` : title
+                    ),
+                    titleNormalized: normalize(title)
+                };
+            }
+        },
+        {
+            dataUrl: "/autocomplete/a.json",
+            placeholders: new Set([
+                "enter artist name here",
+                "enter composer name here"
+            ]),
+            entries: [],
+            loaded: false,
+            mapEntry(entry, index) {
+                // "3"/"4" are the display name in its two scripts (e.g.
+                // "Morikawa Toshiyuki" / "森川 智之"). "8"/"9" are the same
+                // name with given/family order swapped, so searching either
+                // order still matches.
+                const title = String(entry["3"] ?? entry["4"] ?? "");
+                const altTitle = String(entry["4"] ?? "");
+                const swapped = String(entry["8"] ?? "");
+                const swappedAlt = String(entry["9"] ?? "");
+
+                const combined = [title, altTitle, swapped, swappedAlt]
+                    .filter(Boolean)
+                    .join(" ");
+
+                return {
+                    index,
+                    id: entry["1"],
+                    title,
+                    normalized: normalize(combined || title),
+                    titleNormalized: normalize(title)
+                };
+            }
+        },
+        {
+            dataUrl: "/autocomplete/developer.json",
+            placeholders: new Set(["enter developer name here"]),
+            entries: [],
+            loaded: false,
+            mapEntry(entry, index) {
+                // "3"/"5" are native-script variants of the name (sometimes
+                // two slightly different readings); "4" is a plain romaji
+                // slug. All are folded into the searchable text.
+                const title = String(entry["2"] ?? "");
+                const altTitle = String(entry["3"] ?? "");
+                const altTitle2 = String(entry["5"] ?? "");
+                const romajiSlug = String(entry["4"] ?? "");
+
+                const combined = [title, altTitle, altTitle2, romajiSlug]
+                    .filter(Boolean)
+                    .join(" ");
+
+                return {
+                    index,
+                    id: entry["1"],
+                    title,
+                    normalized: normalize(combined || title),
+                    titleNormalized: normalize(title)
+                };
+            }
+        }
+    ];
+
+    // Maps an attached <input> to the SOURCE_CONFIGS entry it should search.
+    const inputConfigs = new WeakMap();
+
+    let activeInput = null;
+    let customResults = [];
+    let customResultElements = [];
+    let selectedIndex = -1;
+
+    let searchTimer = null;
+
+    function getConfigForInput(input) {
         const placeholder = (input.getAttribute("placeholder") || "")
             .trim()
             .toLowerCase();
 
-        return ALLOWED_PLACEHOLDERS.has(placeholder);
-    }
-
-    async function loadDatabase() {
-        log("Loading:", DATA_URL);
-
-        const response = await fetch(
-            new URL(DATA_URL, location.origin),
-            { credentials: "same-origin" }
+        return SOURCE_CONFIGS.find(config =>
+            config.placeholders.has(placeholder)
         );
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-
-        const json = await response.json();
-
-        if (!Array.isArray(json)) {
-            throw new Error("mst.json is not an array");
-        }
-
-        database = json
-            .map((entry, index) => ({
-                index,
-
-                id: entry["1"],
-                title: String(entry["2"] ?? ""),
-                normalized: normalize(entry["4"] ?? entry["2"] ?? ""),
-
-                titleNormalized: normalize(entry["2"] ?? ""),
-
-                sourceType: entry["6"]
-            }))
-            .filter(entry => entry.title && entry.normalized);
-
-        loaded = true;
-
-        log("Indexed titles:", database.length);
     }
 
-    function search(query, queryWords) {
+    function isAllowedInput(input) {
+        return Boolean(getConfigForInput(input));
+    }
+
+    async function loadDatabase(config) {
+        log("Loading:", config.dataUrl);
+
+        try {
+            const response = await fetch(
+                new URL(config.dataUrl, location.origin),
+                { credentials: "same-origin" }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status} ${response.statusText}`);
+            }
+
+            const json = await response.json();
+
+            if (!Array.isArray(json)) {
+                throw new Error(`${config.dataUrl} is not an array`);
+            }
+
+            config.entries = json
+                .map((entry, index) => config.mapEntry(entry, index))
+                .filter(entry => entry.title && entry.normalized);
+
+            config.loaded = true;
+
+            log("Indexed titles for", config.dataUrl, ":", config.entries.length);
+        } catch (error) {
+            console.error("[EMQ Split] Failed to load", config.dataUrl, error);
+            config.entries = [];
+            config.loaded = false;
+        }
+    }
+
+    async function loadAllDatabases() {
+        await Promise.all(SOURCE_CONFIGS.map(loadDatabase));
+    }
+
+    function search(query, queryWords, database) {
         const normalizedQuery = normalize(query);
 
         const sortedWords = [...queryWords].sort(
@@ -397,7 +501,9 @@
     }
 
     function performSearch(input) {
-        if (!loaded) {
+        const config = inputConfigs.get(input);
+
+        if (!config || !config.loaded) {
             return;
         }
 
@@ -417,7 +523,7 @@
             return;
         }
 
-        const results = search(query, queryWords);
+        const results = search(query, queryWords, config.entries);
         log(`Query "${query}" -> ${results.length} results`);
 
         renderCustomResults(input, results);
@@ -428,8 +534,16 @@
             return;
         }
 
+        const config = getConfigForInput(input);
+
+        if (!config) {
+            return;
+        }
+
+        inputConfigs.set(input, config);
+
         input.dataset.emqSplitV7 = "true";
-        log("Attached:", input);
+        log("Attached:", input, "->", config.dataUrl);
 
         input.addEventListener(
             "input",
@@ -443,11 +557,44 @@
         input.addEventListener(
             "keydown",
             async event => {
-                if (activeInput !== input || customResultElements.length === 0) {
+                if (activeInput !== input) {
                     return;
                 }
 
                 const nativeItems = getNativeItems(input);
+
+                // No custom overlay is showing. Only step in for Enter, to
+                // auto-select the first native suggestion if nothing is
+                // already highlighted (native site behavior otherwise
+                // leaves Enter unhandled and submits the raw text).
+                if (customResultElements.length === 0) {
+                    const isEnter =
+                        event.key === "Enter" || event.key === "NumpadEnter";
+
+                    if (!isEnter || nativeItems.length === 0 || event.ctrlKey) {
+                        // Ctrl+Enter is left alone (no auto-select of the
+                        // first native result) so it can be used for
+                        // whatever the site itself binds it to.
+                        return;
+                    }
+
+                    const hasNativeActive = nativeItems.some(item =>
+                        item.classList.contains("autocomplete-active")
+                    );
+
+                    if (hasNativeActive) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+
+                    log("Auto-selecting first native result on Enter:", nativeItems[0].textContent);
+                    nativeItems[0].click();
+
+                    return;
+                }
+
                 const combinedLength = nativeItems.length + customResultElements.length;
 
                 switch (event.key) {
@@ -554,7 +701,7 @@
 
     try {
         log("Starting...");
-        await loadDatabase();
+        await loadAllDatabases();
         startObserver();
         log("Ready.");
     } catch (error) {
