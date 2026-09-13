@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ Autocomplete
 // @namespace    https://github.com/Serecola
-// @version      0.4
+// @version      0.5
 // @author       Serecola & AI
 // @description  EMQ autocomplete with multi-keyword matching in any order
 // @match        https://erogemusicquiz.com/*
@@ -45,8 +45,6 @@
             .filter(Boolean);
     }
 
-    // Each config owns one JSON dataset and the set of input placeholders
-    // that should search against it.
     const SOURCE_CONFIGS = [
         {
             dataUrl: "/autocomplete/mst.json",
@@ -62,10 +60,6 @@
                 const romajiSlug = String(entry["4"] ?? "");
                 const kanjiSlug = String(entry["5"] ?? "");
 
-                // "2" is the romaji title, "3" its kanji title, "4"/"5" are
-                // punctuation-stripped versions of each. Combine all of
-                // them so a mixed-script query (e.g. "魔法 silky") can match
-                // the kanji half and the romaji half independently.
                 const combined = [title, kanjiTitle, romajiSlug, kanjiSlug]
                     .filter(Boolean)
                     .join(" ");
@@ -109,10 +103,6 @@
             entries: [],
             loaded: false,
             mapEntry(entry, index) {
-                // "3"/"4" are the display name in its two scripts (e.g.
-                // "Morikawa Toshiyuki" / "森川 智之"). "8"/"9" are the same
-                // name with given/family order swapped, so searching either
-                // order still matches.
                 const title = String(entry["3"] ?? entry["4"] ?? "");
                 const altTitle = String(entry["4"] ?? "");
                 const swapped = String(entry["8"] ?? "");
@@ -371,11 +361,6 @@
 
         const nativeItems = getNativeItems(input);
 
-        // Native items sometimes render as "Title (Native Script)" (e.g.
-        // artist/developer entries showing a Japanese reading alongside the
-        // romaji name). Strip that trailing parenthetical before comparing
-        // so it can still match our plain-title entries and won't be
-        // duplicated in the custom overlay.
         const nativeTitles = new Set(
             nativeItems.map(item =>
                 normalize(stripTrailingParenthetical(item.textContent))
@@ -569,24 +554,44 @@
         input.addEventListener(
             "keydown",
             async event => {
+                if (event.__emqRawReplay) {
+                    return;
+                }
+
                 if (activeInput !== input) {
+                    return;
+                }
+
+                const isEnter =
+                    event.key === "Enter" || event.key === "NumpadEnter";
+
+                if (isEnter && event.ctrlKey) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+
+                    clearCustomResults();
+
+                    const replay = new KeyboardEvent("keydown", {
+                        key: event.key,
+                        code: event.code,
+                        bubbles: true,
+                        cancelable: true,
+                        shiftKey: event.shiftKey,
+                        altKey: event.altKey,
+                        metaKey: event.metaKey,
+                        ctrlKey: false
+                    });
+                    replay.__emqRawReplay = true;
+
+                    input.dispatchEvent(replay);
+
                     return;
                 }
 
                 const nativeItems = getNativeItems(input);
 
-                // No custom overlay is showing. Only step in for Enter, to
-                // auto-select the first native suggestion if nothing is
-                // already highlighted (native site behavior otherwise
-                // leaves Enter unhandled and submits the raw text).
                 if (customResultElements.length === 0) {
-                    const isEnter =
-                        event.key === "Enter" || event.key === "NumpadEnter";
-
-                    if (!isEnter || nativeItems.length === 0 || event.ctrlKey) {
-                        // Ctrl+Enter is left alone (no auto-select of the
-                        // first native result) so it can be used for
-                        // whatever the site itself binds it to.
+                    if (!isEnter || nativeItems.length === 0) {
                         return;
                     }
 
