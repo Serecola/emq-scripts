@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         EMQ Autocomplete
-// @namespace    https://tampermonkey.net/
+// @namespace    https://github.com/Serecola
 // @version      0.4
 // @author       Serecola & AI
 // @description  EMQ autocomplete with multi-keyword matching in any order
