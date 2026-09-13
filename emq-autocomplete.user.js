@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EMQ Autocomplete
 // @namespace    https://tampermonkey.net/
-// @version      0.3
+// @version      0.4
 // @author       Serecola & AI
 // @description  EMQ autocomplete with multi-keyword matching in any order
 // @match        https://erogemusicquiz.com/*
@@ -57,12 +57,25 @@
             entries: [],
             loaded: false,
             mapEntry(entry, index) {
+                const title = String(entry["2"] ?? "");
+                const kanjiTitle = String(entry["3"] ?? "");
+                const romajiSlug = String(entry["4"] ?? "");
+                const kanjiSlug = String(entry["5"] ?? "");
+
+                // "2" is the romaji title, "3" its kanji title, "4"/"5" are
+                // punctuation-stripped versions of each. Combine all of
+                // them so a mixed-script query (e.g. "魔法 silky") can match
+                // the kanji half and the romaji half independently.
+                const combined = [title, kanjiTitle, romajiSlug, kanjiSlug]
+                    .filter(Boolean)
+                    .join(" ");
+
                 return {
                     index,
                     id: entry["1"],
-                    title: String(entry["2"] ?? ""),
-                    normalized: normalize(entry["4"] ?? entry["2"] ?? ""),
-                    titleNormalized: normalize(entry["2"] ?? ""),
+                    title,
+                    normalized: normalize(combined || title),
+                    titleNormalized: normalize(title),
                     sourceType: entry["6"]
                 };
             }
